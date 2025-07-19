@@ -20,6 +20,7 @@ export default function Home() {
   const [processing, setProcessing] = useState(false);
   const [results, setResults] = useState<AnalysisResult[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const handleFiles = (selectedFiles: FileList | File[]) => {
     const fileArray = Array.from(selectedFiles);
@@ -98,6 +99,91 @@ export default function Home() {
     const date = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     const extension = file.name.split('.').pop();
     return `${analysis.app}_${analysis.content}_${date}.${extension}`;
+  };
+
+  const downloadOrganizedZip = async () => {
+    if (results.length === 0 || files.length === 0) return;
+    
+    setDownloading(true);
+    
+    try {
+      // Dynamically import JSZip
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      
+      // Create folders and add files
+      for (const result of results) {
+        if (result.status === 'success' && result.analysis) {
+          const file = files[result.index];
+          if (file) {
+            const folderPath = `${result.analysis.category}/${result.analysis.app}`;
+            const fileName = generateFileName(file, result.analysis);
+            
+            // Create folder structure
+            const folder = zip.folder(folderPath);
+            
+            // Convert file to array buffer
+            const fileBuffer = await file.arrayBuffer();
+            
+            // Add file to the folder
+            folder?.file(fileName, fileBuffer);
+          }
+        }
+      }
+      
+      // Add a summary report
+      const summaryContent = generateSummaryReport();
+      zip.file('analysis_summary.txt', summaryContent);
+      
+      // Generate ZIP file
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      
+      // Create download link
+      const url = URL.createObjectURL(zipBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `organized_screenshots_${new Date().toISOString().split('T')[0]}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // Clean up
+      URL.revokeObjectURL(url);
+      
+    } catch (error) {
+      console.error('Error creating ZIP:', error);
+      alert('Error creating ZIP file. Please try again.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const generateSummaryReport = () => {
+    const timestamp = new Date().toISOString();
+    const categories = [...new Set(results.map(r => r.analysis.category))];
+    const apps = [...new Set(results.map(r => r.analysis.app))];
+    
+    return `Screenshot Analysis Summary
+Generated: ${timestamp}
+
+Total Screenshots Analyzed: ${results.length}
+Categories Found: ${categories.join(', ')}
+Apps Detected: ${apps.join(', ')}
+
+Detailed Results:
+${results.map((result, index) => {
+  const file = files[result.index];
+  return `
+${index + 1}. ${file?.name}
+   Category: ${result.analysis.category}
+   App: ${result.analysis.app}
+   Content: ${result.analysis.content}
+   Extracted Text: ${result.analysis.extracted_text || 'None'}
+   Confidence: ${result.analysis.confidence}%
+   New Name: ${generateFileName(file, result.analysis)}
+`;
+}).join('')}
+`;
   };
 
   return (
@@ -230,8 +316,12 @@ export default function Home() {
             ))}
             
             <div className="text-center pt-6">
-              <button className="bg-green-600 text-white px-8 py-3 rounded-lg hover:bg-green-700 transition-colors text-lg font-semibold">
-                📦 Download Organized ZIP
+              <button 
+                onClick={downloadOrganizedZip}
+                disabled={downloading}
+                className="bg-green-600 text-white px-8 py-3 rounded-lg hover:bg-green-700 transition-colors text-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {downloading ? '📦 Creating ZIP...' : '📦 Download Organized ZIP'}
               </button>
             </div>
           </div>
