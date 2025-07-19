@@ -1,7 +1,7 @@
 # screenshot-organizer
 AI tool to help organize screenshots
 
-# Feature Set:
+## Feature Set:
 Static Categories:
 
 code, design, social, documents, errors, misc
