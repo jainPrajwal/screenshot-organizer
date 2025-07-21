@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     
     const allItems: Array<{type: 'image', data: string, name?: string}> = [];
     
-    // Process uploaded files with HEIC conversion support
+    // Process uploaded files with HEIC conversion support (PDFs are not allowed)
     for (const file of files) {
       if (file.type.startsWith('image/') || file.name.toLowerCase().endsWith('.heic')) {
         const { buffer, mimeType } = await processFile(file);
@@ -95,8 +95,13 @@ export async function POST(request: NextRequest) {
         data: imageData
       });
     });
-    
+
+    // If no valid images, check if only PDFs were uploaded and return a clear error
     if (allItems.length === 0) {
+      const onlyPdfs = files.length > 0 && files.every(file => file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'));
+      if (onlyPdfs) {
+        return NextResponse.json({ error: "PDF files are not supported. Please upload image files only." }, { status: 400 });
+      }
       return NextResponse.json({ error: "No images provided" }, { status: 400 });
     }
     

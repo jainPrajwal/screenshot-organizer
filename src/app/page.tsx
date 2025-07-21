@@ -310,7 +310,7 @@ ${index + 1}. ${file?.name}
               Drop files here or click to select
             </div>
             <div className="text-sm text-gray-500">
-              Max 10 files • PNG, JPG, WebP, HEIC, PDF supported
+              Max 10 files • PNG, JPG, WebP, HEIC supported
             </div>
             <button className="bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition-colors">
               Choose Files
@@ -321,7 +321,7 @@ ${index + 1}. ${file?.name}
             id="fileInput"
             type="file"
             multiple
-            accept="image/*,application/pdf,.heic"
+            accept="image/*,.heic"
             className="hidden"
             onChange={(e) => e.target.files && handleFiles(e.target.files)}
           />
