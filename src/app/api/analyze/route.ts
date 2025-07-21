@@ -229,7 +229,7 @@ Guidelines:
 - Create 2-6 categories based on natural groupings
 - Consider content type, theme, and extracted text for grouping`;
 
-    let categorization;
+    let categorization: { categories: Record<string, { description: string; images: number[] }> };
     try {
       const categoryResult = await genAI.models.generateContent({
         model: "gemini-2.5-pro",
@@ -254,18 +254,17 @@ Guidelines:
       // Fallback: create categories based on main themes
       const themes = [...new Set(initialAnalyses.map(a => a.main_theme))];
       categorization = {
-        categories: themes.reduce((acc, theme, themeIndex) => {
+        categories: themes.reduce((acc: Record<string, { description: string; images: number[] }>, theme, _themeIndex) => {
           const imageIndices = initialAnalyses
             .map((a, i) => ({ theme: a.main_theme, index: i }))
             .filter(item => item.theme === theme)
             .map(item => item.index);
-          
           acc[theme] = {
             description: `Images related to ${theme}`,
             images: imageIndices
           };
           return acc;
-        }, {} as any)
+        }, {})
       };
     }
 
@@ -273,8 +272,8 @@ Guidelines:
     const results = initialAnalyses.map((analysis, index) => {
       // Find which category this image belongs to
       const categoryEntry = Object.entries(categorization.categories || {})
-        .find(([_, categoryInfo]: [string, any]) => 
-          categoryInfo.images && categoryInfo.images.includes(index)
+        .find(([_, categoryInfo]) => 
+          Array.isArray(categoryInfo.images) && categoryInfo.images.includes(index)
         );
       
       const categoryName = categoryEntry ? categoryEntry[0] : 'uncategorized';

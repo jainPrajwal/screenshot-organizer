@@ -18,7 +18,7 @@ export default function Home() {
   const [files, setFiles] = useState<File[]>([]);
   const [processing, setProcessing] = useState(false);
   const [results, setResults] = useState<AnalysisResult[]>([]);
-  const [categories, setCategories] = useState<any>({});
+  const [categories, setCategories] = useState<Record<string, { description: string; images: number[] }>>({});
   const [dragOver, setDragOver] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [userPrompt, setUserPrompt] = useState('');
@@ -199,7 +199,7 @@ ${index + 1}. ${file?.name}
 `;
   };
 
-  const ImagePreview = ({ file, index }: { file: File, index: number }) => {
+  const ImagePreview = ({ file }: { file: File }) => {
     const [imageError, setImageError] = useState(false);
     const [imageUrl, setImageUrl] = useState<string>('');
     const [isLoading, setIsLoading] = useState(true);
@@ -354,7 +354,7 @@ ${index + 1}. ${file?.name}
               🗂️ Smart Categories Created
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {Object.entries(categories).map(([categoryName, categoryInfo]: [string, any]) => (
+              {Object.entries(categories).map(([categoryName, categoryInfo]) => (
                 <div key={categoryName} className="bg-indigo-50 rounded-lg p-4 border border-indigo-200">
                   <h4 className="font-medium text-indigo-900 mb-2">{categoryName}</h4>
                   <p className="text-sm text-indigo-700 mb-2">{categoryInfo.description}</p>
@@ -455,7 +455,7 @@ ${index + 1}. ${file?.name}
                   
                   <div className="ml-4">
                     {files[result.index] && (
-                      <ImagePreview file={files[result.index]} index={result.index} />
+                      <ImagePreview file={files[result.index]} />
                     )}
                   </div>
                 </div>
