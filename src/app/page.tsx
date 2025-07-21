@@ -21,17 +21,20 @@ export default function Home() {
   const [results, setResults] = useState<AnalysisResult[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [userPrompt, setUserPrompt] = useState('');
 
   const handleFiles = (selectedFiles: FileList | File[]) => {
     const fileArray = Array.from(selectedFiles);
-    const imageFiles = fileArray.filter(file => file.type.startsWith('image/'));
+    const allowedFiles = fileArray.filter(file => 
+      file.type.startsWith('image/') || file.type === 'application/pdf'
+    );
     
-    if (imageFiles.length > 10) {
-      alert('Maximum 10 images allowed');
+    if (allowedFiles.length > 10) {
+      alert('Maximum 10 files allowed');
       return;
     }
     
-    setFiles(imageFiles);
+    setFiles(allowedFiles);
     setResults([]);
   };
 
@@ -55,6 +58,7 @@ export default function Home() {
   };
 
   const processImages = async () => {
+    console.log('processing images')
     if (files.length === 0) return;
     
     setProcessing(true);
@@ -70,15 +74,19 @@ export default function Home() {
       });
       
       const imageDataUrls = await Promise.all(imagePromises);
-      
+      console.log('imageDataUrls ', imageDataUrls)
       // Send to API
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ images: imageDataUrls }),
+        body: JSON.stringify({ 
+          images: imageDataUrls,
+          userPrompt: userPrompt.trim() || undefined
+        }),
       });
+      
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -116,7 +124,7 @@ export default function Home() {
         if (result.status === 'success' && result.analysis) {
           const file = files[result.index];
           if (file) {
-            const folderPath = `${result.analysis.category}/${result.analysis.app}`;
+            const folderPath = `${result.analysis.category}`;
             const fileName = generateFileName(file, result.analysis);
             
             // Create folder structure
@@ -142,7 +150,7 @@ export default function Home() {
       const url = URL.createObjectURL(zipBlob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `organized_screenshots_${new Date().toISOString().split('T')[0]}.zip`;
+      link.download = `organized_images_${new Date().toISOString().split('T')[0]}.zip`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -163,10 +171,10 @@ export default function Home() {
     const categories = [...new Set(results.map(r => r.analysis.category))];
     const apps = [...new Set(results.map(r => r.analysis.app))];
     
-    return `Screenshot Analysis Summary
+    return `Image Analysis Summary
 Generated: ${timestamp}
 
-Total Screenshots Analyzed: ${results.length}
+Total Images Analyzed: ${results.length}
 Categories Found: ${categories.join(', ')}
 Apps Detected: ${apps.join(', ')}
 
@@ -190,7 +198,7 @@ ${index + 1}. ${file?.name}
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
       <div className="max-w-4xl mx-auto">
         <h1 className="text-4xl font-bold text-center mb-8 text-gray-800">
-          📸 Screenshot Organizer
+          📄 Document & Image Organizer
         </h1>
         
         {/* Upload Area */}
@@ -208,10 +216,10 @@ ${index + 1}. ${file?.name}
           <div className="space-y-4">
             <div className="text-6xl">📁</div>
             <div className="text-xl text-gray-600">
-              Drop screenshots here or click to select
+              Drop files here or click to select
             </div>
             <div className="text-sm text-gray-500">
-              Max 10 images • PNG, JPG, WebP supported
+              Max 10 files • PNG, JPG, WebP, PDF supported
             </div>
             <button className="bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition-colors">
               Choose Files
@@ -222,10 +230,33 @@ ${index + 1}. ${file?.name}
             id="fileInput"
             type="file"
             multiple
-            accept="image/*"
+            accept="image/*,application/pdf"
             className="hidden"
             onChange={(e) => e.target.files && handleFiles(e.target.files)}
           />
+        </div>
+
+        {/* Custom Instructions */}
+        <div className="bg-white rounded-xl p-6 mb-8 shadow-lg">
+          <h3 className="text-lg font-semibold mb-4 text-gray-800">
+            📝 Custom Instructions (Optional)
+          </h3>
+          <textarea
+            value={userPrompt}
+            style={{
+              color: "GrayText"
+            }}
+            onChange={(e) => setUserPrompt(e.target.value)}
+            placeholder="Add custom instructions for organizing your files. For example:
+• Organize into: Work Documents, Personal Photos, Receipts
+• Group by date or person
+• Focus on specific content types
+• Any other special requirements..."
+            className="w-full h-32 p-4 border border-gray-200 rounded-lg resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
+          />
+          <p className="text-xs text-gray-500 mt-2">
+            These instructions will guide how the AI analyzes and categorizes your files.
+          </p>
         </div>
 
         {/* Selected Files */}
@@ -250,7 +281,7 @@ ${index + 1}. ${file?.name}
               disabled={processing}
               className="w-full mt-6 bg-indigo-600 text-white py-3 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {processing ? '🤖 Analyzing with AI...' : '🚀 Analyze Screenshots'}
+              {processing ? '🤖 Analyzing with AI...' : '🚀 Analyze Files'}
             </button>
           </div>
         )}
@@ -259,16 +290,30 @@ ${index + 1}. ${file?.name}
         {processing && (
           <div className="bg-white rounded-xl p-8 text-center shadow-lg mb-8">
             <div className="animate-spin w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full mx-auto mb-4"></div>
-            <p className="text-gray-600">AI is analyzing your screenshots...</p>
+            <p className="text-gray-600">AI is analyzing your files...</p>
+            {userPrompt.trim() && (
+              <p className="text-sm text-indigo-600 mt-2">
+                🎯 Using your custom instructions
+              </p>
+            )}
           </div>
         )}
 
         {/* Results */}
         {results.length > 0 && (
           <div className="space-y-4">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">
-              📋 Analysis Results
-            </h2>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-800">
+                📋 Analysis Results
+              </h2>
+              {userPrompt.trim() && (
+                <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-1">
+                  <span className="text-xs text-indigo-700">
+                    🎯 Custom instructions applied
+                  </span>
+                </div>
+              )}
+            </div>
             
             {results.map((result, index) => (
               <div key={index} className="bg-white rounded-xl p-6 shadow-lg border-l-4 border-indigo-500">
@@ -298,11 +343,19 @@ ${index + 1}. ${file?.name}
                   
                   <div className="ml-4">
                     {files[result.index] && (
-                      <img
-                        src={URL.createObjectURL(files[result.index])}
-                        alt="Preview"
-                        className="w-20 h-20 object-cover rounded-lg"
-                      />
+                      <>
+                        {files[result.index].type === 'application/pdf' ? (
+                          <div className="w-20 h-20 bg-red-100 rounded-lg flex items-center justify-center">
+                            <span className="text-red-600 text-2xl">📄</span>
+                          </div>
+                        ) : (
+                          <img
+                            src={URL.createObjectURL(files[result.index])}
+                            alt="Preview"
+                            className="w-20 h-20 object-cover rounded-lg"
+                          />
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
