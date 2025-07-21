@@ -199,7 +199,7 @@ Analyze this image and return ONLY a valid JSON object with this exact structure
     );
 
     // PHASE 2: Create smart categories based on all the analyzed content
-    const categoryPrompt = `Based on the following image analysis results, create smart categories that group similar content together.
+    const categoryPrompt = `Based on the following image analysis results, create smart categories that group similar content together. Create a broader category.
 
 Image Analysis Results:
 ${initialAnalyses.map((analysis, i) => 
