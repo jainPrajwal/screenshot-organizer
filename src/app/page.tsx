@@ -5,7 +5,6 @@ import { useState } from 'react'
 interface AnalysisResult {
   index: number;
   analysis: {
-    app: string;
     content: string;
     category: string;
     extracted_text: string;
@@ -106,7 +105,7 @@ export default function Home() {
   const generateFileName = (file: File, analysis: AnalysisResult['analysis']) => {
     const date = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     const extension = file.name.split('.').pop();
-    return `${analysis.app}_${analysis.content}_${date}.${extension}`;
+    return `${analysis.content}_${date}.${extension}`;
   };
 
   const downloadOrganizedZip = async () => {
@@ -169,14 +168,11 @@ export default function Home() {
   const generateSummaryReport = () => {
     const timestamp = new Date().toISOString();
     const categories = [...new Set(results.map(r => r.analysis.category))];
-    const apps = [...new Set(results.map(r => r.analysis.app))];
-    
     return `Image Analysis Summary
 Generated: ${timestamp}
 
 Total Images Analyzed: ${results.length}
 Categories Found: ${categories.join(', ')}
-Apps Detected: ${apps.join(', ')}
 
 Detailed Results:
 ${results.map((result, index) => {
@@ -184,7 +180,6 @@ ${results.map((result, index) => {
   return `
 ${index + 1}. ${file?.name}
    Category: ${result.analysis.category}
-   App: ${result.analysis.app}
    Content: ${result.analysis.content}
    Extracted Text: ${result.analysis.extracted_text || 'None'}
    Confidence: ${result.analysis.confidence}%
@@ -320,7 +315,7 @@ ${index + 1}. ${file?.name}
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <h3 className="font-semibold text-lg text-gray-800 mb-2">
-                      📁 {result.analysis.category} / {result.analysis.app}
+                      📁 {result.analysis.category}
                     </h3>
                     
                     <div className="space-y-2 text-sm text-gray-600">
@@ -334,9 +329,6 @@ ${index + 1}. ${file?.name}
                     <div className="flex flex-wrap gap-2 mt-3">
                       <span className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-xs">
                         {result.analysis.category}
-                      </span>
-                      <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs">
-                        {result.analysis.app}
                       </span>
                     </div>
                   </div>

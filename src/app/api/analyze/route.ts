@@ -12,7 +12,7 @@ USER INSTRUCTIONS:
 The user has provided the following custom instructions for organizing their files:
 "${userPrompt}"
 
-IMPORTANT: Follow the user's instructions as closely as possible while maintaining the JSON structure. If the user specifies custom categories, use those instead of the default ones. If the user mentions specific grouping criteria, apply them in your analysis.`;
+IMPORTANT: Follow the user's instructions as closely as possible while maintaining the JSON structure. If the user specifies custom grouping criteria, apply them in your analysis.`;
 
   return basePrompt + userInstructionsSection;
 }
@@ -70,23 +70,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Maximum 10 images allowed" }, { status: 400 });
     }
 
-    const baseImagePrompt = `You are analyzing an image. Look carefully at all visible content, text, UI elements, and context clues to understand what this image shows.
+    // PHASE 1: Analyze all images to extract content and text
+    const baseAnalysisPrompt = `You are analyzing an image to extract key information. Look carefully at all visible content, text, UI elements, and context clues.
 
 Analyze this image and return ONLY a valid JSON object with this exact structure:
 
 {
-  "app": "detected app name (be specific: preview, adobe_acrobat, vscode, figma, chrome, safari, terminal, slack, notion, etc.)",
   "content": "brief content description using underscores (payslip_document, react_error, login_form, api_response, pdf_document, salary_statement, website_page, photo, diagram, etc.)",
-  "category": "choose from: code, design, social, documents, errors, finance, productivity, misc",
   "extracted_text": "key visible text from the document content (up to 150 characters, focus on meaningful text not UI labels)",
+  "main_theme": "single word describing the primary theme (finance, coding, design, personal, business, error, social, etc.)",
   "confidence": 85
 }`;
 
-    const results = await Promise.all(
+    const initialAnalyses = await Promise.all(
       allItems.map(async (item, index) => {
         try {
-          // Analyze image
-          const enhancedPrompt = buildPromptWithUserInstructions(baseImagePrompt, userPrompt);
+          const enhancedPrompt = buildPromptWithUserInstructions(baseAnalysisPrompt, userPrompt);
           const base64Data = item.data.replace(/^data:image\/[a-z]+;base64,/, '');
           
           const result = await genAI.models.generateContent({
@@ -108,8 +107,6 @@ Analyze this image and return ONLY a valid JSON object with this exact structure
           });
           
           const responseText = result.text?.trim() || '';
-          
-          // Clean the response text
           const cleanResponseText = responseText
             .replace(/```json\n?/g, '')
             .replace(/```\n?/g, '')
@@ -120,10 +117,6 @@ Analyze this image and return ONLY a valid JSON object with this exact structure
           try {
             analysis = JSON.parse(cleanResponseText);
           } catch (parseError) {
-            console.error(`JSON parse error for item ${index}:`, parseError);
-            console.error(`Raw response: "${responseText}"`);
-            
-            // Try to extract JSON from the response
             const jsonMatch = cleanResponseText.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
               try {
@@ -135,56 +128,136 @@ Analyze this image and return ONLY a valid JSON object with this exact structure
             
             if (!analysis) {
               analysis = {
-                app: 'unknown',
                 content: `image_document_${index + 1}`,
-                category: 'misc',
                 extracted_text: "Could not extract text",
+                main_theme: "misc",
                 confidence: 20
               };
             }
           }
           
-          // Clean and validate the response
-          const cleanedAnalysis = {
-            app: String(analysis.app || 'unknown').toLowerCase().replace(/\s+/g, '_'),
-            content: String(analysis.content || `image_document_${index + 1}`).replace(/\s+/g, '_'),
-            category: String(analysis.category || 'misc').toLowerCase(),
-            extracted_text: String(analysis.extracted_text || "").substring(0, 150),
-            confidence: Math.min(100, Math.max(0, Number(analysis.confidence) || 50))
-          };
-          
           return {
             index,
-            analysis: cleanedAnalysis,
-            status: 'success',
-            fileType: item.type,
+            content: String(analysis.content || `image_document_${index + 1}`).replace(/\s+/g, '_'),
+            extracted_text: String(analysis.extracted_text || "").substring(0, 150),
+            main_theme: String(analysis.main_theme || 'misc').toLowerCase(),
+            confidence: Math.min(100, Math.max(0, Number(analysis.confidence) || 50)),
             fileName: item.name || `${item.type}_${index + 1}`
           };
           
         } catch (error) {
-          console.error(`Error processing image ${index}:`, error);
-          
+          console.error(`Error in initial analysis for image ${index}:`, error);
           return {
             index,
-            analysis: {
-              app: 'unknown',
-              content: `error_image_${index + 1}`,
-              category: 'misc',
-              extracted_text: "Processing failed",
-              confidence: 0
-            },
-            status: 'error',
-            fileType: item.type,
-            fileName: item.name || `${item.type}_${index + 1}`,
-            error: error instanceof Error ? error.message : 'Unknown error'
+            content: `error_image_${index + 1}`,
+            extracted_text: "Processing failed",
+            main_theme: "misc",
+            confidence: 0,
+            fileName: item.name || `${item.type}_${index + 1}`
           };
         }
       })
     );
+
+    // PHASE 2: Create smart categories based on all the analyzed content
+    const categoryPrompt = `Based on the following image analysis results, create smart categories that group similar content together.
+
+Image Analysis Results:
+${initialAnalyses.map((analysis, i) => 
+  `Image ${i + 1}: Content="${analysis.content}", Text="${analysis.extracted_text}", Theme="${analysis.main_theme}", File="${analysis.fileName}"`
+).join('\n')}
+
+${userPrompt ? `\nUser Instructions: "${userPrompt}"` : ''}
+
+Create categories that make logical sense based on the actual content. Return ONLY a valid JSON object with this structure:
+
+{
+  "categories": {
+    "category_name_1": {
+      "description": "Brief description of what this category contains",
+      "images": [0, 1, 3]
+    },
+    "category_name_2": {
+      "description": "Brief description of what this category contains", 
+      "images": [2, 4]
+    }
+  }
+}
+
+Guidelines:
+- Use descriptive category names (e.g., "financial_documents", "code_errors", "ui_designs", "personal_photos")
+- Each image index should appear in exactly one category
+- Create 2-6 categories based on natural groupings
+- Consider content type, theme, and extracted text for grouping`;
+
+    let categorization;
+    try {
+      const categoryResult = await genAI.models.generateContent({
+        model: "gemini-2.5-pro",
+        contents: [
+          {
+            parts: [{ text: categoryPrompt }],
+            role: "user"
+          }
+        ]
+      });
+      
+      const categoryResponseText = categoryResult.text?.trim() || '';
+      const cleanCategoryResponse = categoryResponseText
+        .replace(/```json\n?/g, '')
+        .replace(/```\n?/g, '')
+        .replace(/^json\n?/g, '')
+        .trim();
+      
+      categorization = JSON.parse(cleanCategoryResponse);
+    } catch (error) {
+      console.error("Error creating categories:", error);
+      // Fallback: create categories based on main themes
+      const themes = [...new Set(initialAnalyses.map(a => a.main_theme))];
+      categorization = {
+        categories: themes.reduce((acc, theme, themeIndex) => {
+          const imageIndices = initialAnalyses
+            .map((a, i) => ({ theme: a.main_theme, index: i }))
+            .filter(item => item.theme === theme)
+            .map(item => item.index);
+          
+          acc[theme] = {
+            description: `Images related to ${theme}`,
+            images: imageIndices
+          };
+          return acc;
+        }, {} as any)
+      };
+    }
+
+    // PHASE 3: Build final results with categories
+    const results = initialAnalyses.map((analysis, index) => {
+      // Find which category this image belongs to
+      const categoryEntry = Object.entries(categorization.categories || {})
+        .find(([_, categoryInfo]: [string, any]) => 
+          categoryInfo.images && categoryInfo.images.includes(index)
+        );
+      
+      const categoryName = categoryEntry ? categoryEntry[0] : 'uncategorized';
+      
+      return {
+        index: analysis.index,
+        analysis: {
+          content: analysis.content,
+          category: categoryName,
+          extracted_text: analysis.extracted_text,
+          confidence: analysis.confidence
+        },
+        status: 'success',
+        fileType: 'image',
+        fileName: analysis.fileName
+      };
+    });
     
     return NextResponse.json({ 
       results,
-      userPrompt: userPrompt || null // Include the user prompt in response for reference
+      categories: categorization.categories || {},
+      userPrompt: userPrompt || null
     });
     
   } catch (error) {
