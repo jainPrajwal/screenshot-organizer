@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { NextRequest, NextResponse } from "next/server";
+import sharp from 'sharp';
 
 const genAI = new GoogleGenAI({apiKey: process.env.GEMINI_API_KEY!});
 
@@ -15,6 +16,39 @@ The user has provided the following custom instructions for organizing their fil
 IMPORTANT: Follow the user's instructions as closely as possible while maintaining the JSON structure. If the user specifies custom grouping criteria, apply them in your analysis.`;
 
   return basePrompt + userInstructionsSection;
+}
+
+async function processFile(file: File): Promise<{buffer: Buffer, mimeType: string}> {
+  const isHeic = file.type === 'image/heic' || file.name.toLowerCase().endsWith('.heic');
+  
+  if (isHeic) {
+    try {
+      const buffer = await file.arrayBuffer();
+      const convertedBuffer = await sharp(Buffer.from(buffer))
+        .jpeg({ quality: 80 })
+        .toBuffer();
+      
+      return {
+        buffer: convertedBuffer,
+        mimeType: 'image/jpeg'
+      };
+    } catch (error) {
+      console.error('HEIC conversion failed:', error);
+      // Fallback to original file if conversion fails
+      const buffer = await file.arrayBuffer();
+      return {
+        buffer: Buffer.from(buffer),
+        mimeType: file.type
+      };
+    }
+  }
+  
+  // For non-HEIC files, return as is
+  const buffer = await file.arrayBuffer();
+  return {
+    buffer: Buffer.from(buffer),
+    mimeType: file.type
+  };
 }
 
 export async function POST(request: NextRequest) {
@@ -40,12 +74,12 @@ export async function POST(request: NextRequest) {
     
     const allItems: Array<{type: 'image', data: string, name?: string}> = [];
     
-    // Process uploaded files
+    // Process uploaded files with HEIC conversion support
     for (const file of files) {
-      if (file.type.startsWith('image/')) {
-        const buffer = await file.arrayBuffer();
-        const base64 = Buffer.from(buffer).toString('base64');
-        const dataUrl = `data:${file.type};base64,${base64}`;
+      if (file.type.startsWith('image/') || file.name.toLowerCase().endsWith('.heic')) {
+        const { buffer, mimeType } = await processFile(file);
+        const base64 = buffer.toString('base64');
+        const dataUrl = `data:${mimeType};base64,${base64}`;
         allItems.push({
           type: 'image',
           data: dataUrl,
@@ -97,7 +131,7 @@ Analyze this image and return ONLY a valid JSON object with this exact structure
                   {
                     inlineData: {
                       data: base64Data,
-                      mimeType: "image/png"
+                      mimeType: item.data.includes('data:image/jpeg') ? 'image/jpeg' : 'image/png'
                     }
                   }
                 ],

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 interface AnalysisResult {
   index: number;
@@ -18,6 +18,7 @@ export default function Home() {
   const [files, setFiles] = useState<File[]>([]);
   const [processing, setProcessing] = useState(false);
   const [results, setResults] = useState<AnalysisResult[]>([]);
+  const [categories, setCategories] = useState<any>({});
   const [dragOver, setDragOver] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [userPrompt, setUserPrompt] = useState('');
@@ -25,7 +26,7 @@ export default function Home() {
   const handleFiles = (selectedFiles: FileList | File[]) => {
     const fileArray = Array.from(selectedFiles);
     const allowedFiles = fileArray.filter(file => 
-      file.type.startsWith('image/') || file.type === 'application/pdf'
+      file.type.startsWith('image/') || file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.heic')
     );
     
     if (allowedFiles.length > 10) {
@@ -35,6 +36,7 @@ export default function Home() {
     
     setFiles(allowedFiles);
     setResults([]);
+    setCategories({});
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -63,29 +65,26 @@ export default function Home() {
     setProcessing(true);
     
     try {
-      // Convert files to base64
-      const imagePromises = files.map(file => {
-        return new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.readAsDataURL(file);
-        });
+      // Use FormData instead of JSON to properly handle files
+      const formData = new FormData();
+      
+      // Add all files to FormData
+      files.forEach((file, index) => {
+        formData.append('files', file);
       });
       
-      const imageDataUrls = await Promise.all(imagePromises);
-      console.log('imageDataUrls ', imageDataUrls)
-      // Send to API
+      // Add user prompt if provided
+      if (userPrompt.trim()) {
+        formData.append('userPrompt', userPrompt.trim());
+      }
+      
+      console.log('Sending files via FormData');
+      
+      // Send to API with FormData (no Content-Type header needed - browser will set it)
       const response = await fetch('/api/analyze', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          images: imageDataUrls,
-          userPrompt: userPrompt.trim() || undefined
-        }),
+        body: formData, // Send FormData directly
       });
-      
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -93,6 +92,7 @@ export default function Home() {
       
       const data = await response.json();
       setResults(data.results);
+      setCategories(data.categories || {});
       
     } catch (error) {
       console.error('Error processing images:', error);
@@ -167,12 +167,22 @@ export default function Home() {
 
   const generateSummaryReport = () => {
     const timestamp = new Date().toISOString();
-    const categories = [...new Set(results.map(r => r.analysis.category))];
+    const categoryNames = Object.keys(categories);
     return `Image Analysis Summary
 Generated: ${timestamp}
 
 Total Images Analyzed: ${results.length}
-Categories Found: ${categories.join(', ')}
+Categories Created: ${categoryNames.join(', ')}
+
+Category Details:
+${categoryNames.map(catName => {
+  const categoryInfo = categories[catName];
+  return `
+${catName}:
+  Description: ${categoryInfo.description}
+  Images: ${categoryInfo.images.length} files
+`;
+}).join('')}
 
 Detailed Results:
 ${results.map((result, index) => {
@@ -187,6 +197,92 @@ ${index + 1}. ${file?.name}
 `;
 }).join('')}
 `;
+  };
+
+  const ImagePreview = ({ file, index }: { file: File, index: number }) => {
+    const [imageError, setImageError] = useState(false);
+    const [imageUrl, setImageUrl] = useState<string>('');
+    const [isLoading, setIsLoading] = useState(true);
+    
+    // Check if file is HEIC
+    const isHeic = file.type === 'image/heic' || 
+                  file.name.toLowerCase().endsWith('.heic') ||
+                  file.name.toLowerCase().endsWith('.heif');
+    
+    useEffect(() => {
+      if (file.type === 'application/pdf') {
+        setIsLoading(false);
+        return;
+      }
+      
+      // For HEIC files, we can't preview them directly
+      if (isHeic) {
+        setIsLoading(false);
+        return;
+      }
+      
+      const url = URL.createObjectURL(file);
+      setImageUrl(url);
+      setIsLoading(false);
+      
+      return () => {
+        URL.revokeObjectURL(url);
+      };
+    }, [file, isHeic]);
+    
+    if (file.type === 'application/pdf') {
+      return (
+        <div className="w-20 h-20 bg-red-100 rounded-lg flex items-center justify-center">
+          <span className="text-red-600 text-2xl">📄</span>
+        </div>
+      );
+    }
+    
+    // Special handling for HEIC files (can't be previewed directly)
+    if (isHeic) {
+      return (
+        <div className="w-20 h-20 bg-orange-100 rounded-lg flex items-center justify-center">
+          <div className="text-xs text-orange-700 text-center p-2">
+            <div className="text-lg">📸</div>
+            <div>HEIC</div>
+          </div>
+        </div>
+      );
+    }
+    
+    if (isLoading) {
+      return (
+        <div className="w-20 h-20 bg-gray-100 rounded-lg flex items-center justify-center">
+          <div className="text-gray-400 text-lg">⏳</div>
+        </div>
+      );
+    }
+    
+    if (imageError || !imageUrl) {
+      return (
+        <div className="w-20 h-20 bg-gray-100 rounded-lg flex items-center justify-center">
+          <div className="text-xs text-gray-500 text-center p-2">
+            <div className="text-lg">🖼️</div>
+            <div>{file.name.split('.').pop()?.toUpperCase()}</div>
+          </div>
+        </div>
+      );
+    }
+    
+    return (
+      <img
+        src={imageUrl}
+        alt="Preview"
+        className="w-20 h-20 object-cover rounded-lg"
+        onError={() => {
+          console.error('Image failed to load:', imageUrl, file.type, file.name);
+          setImageError(true);
+        }}
+        onLoad={() => {
+          console.log('Image loaded successfully:', file.name);
+        }}
+      />
+    );
   };
 
   return (
@@ -214,7 +310,7 @@ ${index + 1}. ${file?.name}
               Drop files here or click to select
             </div>
             <div className="text-sm text-gray-500">
-              Max 10 files • PNG, JPG, WebP, PDF supported
+              Max 10 files • PNG, JPG, WebP, HEIC, PDF supported
             </div>
             <button className="bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition-colors">
               Choose Files
@@ -225,7 +321,7 @@ ${index + 1}. ${file?.name}
             id="fileInput"
             type="file"
             multiple
-            accept="image/*,application/pdf"
+            accept="image/*,application/pdf,.heic"
             className="hidden"
             onChange={(e) => e.target.files && handleFiles(e.target.files)}
           />
@@ -238,21 +334,38 @@ ${index + 1}. ${file?.name}
           </h3>
           <textarea
             value={userPrompt}
-            style={{
-              color: "GrayText"
-            }}
             onChange={(e) => setUserPrompt(e.target.value)}
             placeholder="Add custom instructions for organizing your files. For example:
 • Organize into: Work Documents, Personal Photos, Receipts
 • Group by date or person
 • Focus on specific content types
 • Any other special requirements..."
-            className="w-full h-32 p-4 border border-gray-200 rounded-lg resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
+            className="w-full h-32 p-4 border border-gray-200 rounded-lg resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm text-gray-700"
           />
           <p className="text-xs text-gray-500 mt-2">
             These instructions will guide how the AI analyzes and categorizes your files.
           </p>
         </div>
+
+        {/* Categories Overview */}
+        {Object.keys(categories).length > 0 && (
+          <div className="bg-white rounded-xl p-6 mb-8 shadow-lg">
+            <h3 className="text-lg font-semibold mb-4 text-gray-800">
+              🗂️ Smart Categories Created
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {Object.entries(categories).map(([categoryName, categoryInfo]: [string, any]) => (
+                <div key={categoryName} className="bg-indigo-50 rounded-lg p-4 border border-indigo-200">
+                  <h4 className="font-medium text-indigo-900 mb-2">{categoryName}</h4>
+                  <p className="text-sm text-indigo-700 mb-2">{categoryInfo.description}</p>
+                  <span className="text-xs text-indigo-600">
+                    {categoryInfo.images?.length || 0} images
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Selected Files */}
         {files.length > 0 && (
@@ -264,9 +377,16 @@ ${index + 1}. ${file?.name}
               {files.map((file, index) => (
                 <div key={index} className="flex items-center justify-between py-2 px-4 bg-gray-50 rounded-lg">
                   <span className="text-sm text-gray-700">{file.name}</span>
-                  <span className="text-xs text-gray-500">
-                    {(file.size / 1024 / 1024).toFixed(2)} MB
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-gray-500">
+                      {(file.size / 1024 / 1024).toFixed(2)} MB
+                    </span>
+                    {file.name.toLowerCase().endsWith('.heic') && (
+                      <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded">
+                        HEIC → JPEG
+                      </span>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -335,19 +455,7 @@ ${index + 1}. ${file?.name}
                   
                   <div className="ml-4">
                     {files[result.index] && (
-                      <>
-                        {files[result.index].type === 'application/pdf' ? (
-                          <div className="w-20 h-20 bg-red-100 rounded-lg flex items-center justify-center">
-                            <span className="text-red-600 text-2xl">📄</span>
-                          </div>
-                        ) : (
-                          <img
-                            src={URL.createObjectURL(files[result.index])}
-                            alt="Preview"
-                            className="w-20 h-20 object-cover rounded-lg"
-                          />
-                        )}
-                      </>
+                      <ImagePreview file={files[result.index]} index={result.index} />
                     )}
                   </div>
                 </div>
