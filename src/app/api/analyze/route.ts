@@ -2,8 +2,9 @@ import { GoogleGenAI } from "@google/genai";
 import { NextRequest, NextResponse } from "next/server";
 import sharp from 'sharp';
 
+console.log('process.env.GEMINI_API_KEY ', process.env.GEMINI_API_KEY)
 const genAI = new GoogleGenAI({apiKey: process.env.GEMINI_API_KEY!});
-
+console.log('genAI ', genAI)
 function buildPromptWithUserInstructions(basePrompt: string, userPrompt?: string) {
   if (!userPrompt) return basePrompt;
   
